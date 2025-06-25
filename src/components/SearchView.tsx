@@ -1,9 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search, User, MessageSquare, File, Link, Clock } from 'lucide-react';
-import { mockSearchData } from '../data/mockSearchData';
-import { SearchResult, SearchFilter } from '../types/search';
-import { loadAllMessagesFromStorage, chatHasRealMessages } from '../utils/chatStorage';
-import { mockContacts } from '../data/mockMessages';
+import { performSearch, rebuildSearchIndex, SearchResult } from '../utils/searchEngine';
+import { chatHasRealMessages } from '../utils/chatStorage';
 
 interface SearchViewProps {
   onNavigateToChat?: (contactId: string, searchQuery: string, messageId: string) => void;
@@ -11,95 +9,37 @@ interface SearchViewProps {
 
 export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<SearchFilter>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'contacts' | 'messages' | 'files' | 'links'>('all');
 
   const filters = [
-    { id: 'all' as SearchFilter, label: 'All', icon: Search },
-    { id: 'contacts' as SearchFilter, label: 'Contacts', icon: User },
-    { id: 'messages' as SearchFilter, label: 'Messages', icon: MessageSquare },
-    { id: 'files' as SearchFilter, label: 'Files', icon: File },
-    { id: 'links' as SearchFilter, label: 'Links', icon: Link },
+    { id: 'all' as const, label: 'All', icon: Search },
+    { id: 'contacts' as const, label: 'Contacts', icon: User },
+    { id: 'messages' as const, label: 'Messages', icon: MessageSquare },
+    { id: 'files' as const, label: 'Files', icon: File },
+    { id: 'links' as const, label: 'Links', icon: Link },
   ];
 
+  // Rebuild search index when component mounts to ensure fresh data
+  React.useEffect(() => {
+    rebuildSearchIndex();
+  }, []);
+
   const filteredResults = useMemo(() => {
-    // Don't show results for very short queries to prevent UI issues
-    if (!searchQuery.trim() || searchQuery.trim().length < 2) return [];
+    // Allow search with just 1 character
+    if (!searchQuery.trim()) return [];
 
-    const query = searchQuery.toLowerCase();
-    let results: SearchResult[] = [];
-
-    // Search in stored messages from all chats (completely excluding cleared chats)
-    if (activeFilter === 'all' || activeFilter === 'messages') {
-      const allStoredMessages = loadAllMessagesFromStorage();
-      
-      Object.entries(allStoredMessages).forEach(([contactId, messages]) => {
-        const contact = mockContacts[contactId];
-        if (!contact) return;
-
-        // Double-check: Only include chats that have real messages (not cleared)
-        if (!chatHasRealMessages(contactId)) return;
-
-        messages.forEach((message) => {
-          if (message.type === 'text' && message.content.toLowerCase().includes(query)) {
-            results.push({
-              id: `message-${contactId}-${message.id}`,
-              type: 'messages',
-              title: message.content.substring(0, 50) + (message.content.length > 50 ? '...' : ''),
-              content: message.content,
-              timestamp: new Date(message.timestamp).toLocaleString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true,
-              }),
-              contactName: contact.name,
-              contactId,
-              messageId: message.id,
-            });
-          }
-        });
-      });
+    const allResults = performSearch(searchQuery);
+    
+    // Filter by active filter type
+    if (activeFilter === 'all') {
+      return allResults;
     }
-
-    // Search in mock data (contacts, files, links) - but exclude cleared chats
-    const mockResults = mockSearchData.filter(item => {
-      const matchesQuery = 
-        item.title.toLowerCase().includes(query) ||
-        item.content.toLowerCase().includes(query) ||
-        (item.contactName && item.contactName.toLowerCase().includes(query));
-
-      if (activeFilter === 'all') return matchesQuery;
-      if (activeFilter === 'messages') return false; // Already handled above
-      return matchesQuery && item.type === activeFilter;
-    });
-
-    // Filter out results from cleared chats for mock data too
-    const filteredMockResults = mockResults.filter(result => {
-      if (result.contactId && !chatHasRealMessages(result.contactId)) {
-        return false; // Exclude results from cleared chats
-      }
-      return true;
-    });
-
-    results = [...results, ...filteredMockResults];
-
-    // Sort by relevance and timestamp
-    return results.sort((a, b) => {
-      // Prioritize exact matches
-      const aExact = a.title.toLowerCase() === query || a.content.toLowerCase() === query;
-      const bExact = b.title.toLowerCase() === query || b.content.toLowerCase() === query;
-      
-      if (aExact && !bExact) return -1;
-      if (!aExact && bExact) return 1;
-      
-      // Then sort by timestamp (most recent first)
-      const aTime = new Date(a.timestamp).getTime();
-      const bTime = new Date(b.timestamp).getTime();
-      return bTime - aTime;
-    });
+    
+    return allResults.filter(result => result.type === activeFilter);
   }, [searchQuery, activeFilter]);
 
   const highlightText = (text: string, query: string) => {
-    if (!query.trim() || query.trim().length < 2) return text;
+    if (!query.trim()) return text;
     
     const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
     const parts = text.split(regex);
@@ -129,12 +69,14 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
   };
 
   const handleResultClick = (result: SearchResult) => {
-    // Only navigate to chat if the chat has real messages (not cleared)
+    // Only navigate to chat for messages from active chats
     if (result.type === 'messages' && result.contactId && result.messageId && onNavigateToChat) {
       if (chatHasRealMessages(result.contactId)) {
         onNavigateToChat(result.contactId, searchQuery, result.messageId);
       }
     }
+    // For other types, you could implement specific actions
+    // For now, we'll just handle message navigation
   };
 
   const getResultPreview = (result: SearchResult) => {
@@ -182,9 +124,14 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
               <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-2">
                 <File size={16} className="text-blue-600" />
               </div>
-              <p className="text-gray-700">
-                {highlightText(result.title, searchQuery)}
-              </p>
+              <div>
+                <p className="text-gray-700 font-medium">
+                  {highlightText(result.title, searchQuery)}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {result.fileType} • {result.fileSize}
+                </p>
+              </div>
             </div>
           </div>
         );
@@ -201,7 +148,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
               <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-2">
                 <Link size={16} className="text-purple-600" />
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="text-gray-700 font-medium">
                   {highlightText(result.title, searchQuery)}
                 </p>
@@ -255,7 +202,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
-        {!searchQuery.trim() || searchQuery.trim().length < 2 ? (
+        {!searchQuery.trim() ? (
           <div className="flex flex-col items-center justify-center py-16 px-6">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
               <Search className="text-gray-400" size={32} />
@@ -266,11 +213,9 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
             <p className="text-gray-500 text-center leading-relaxed">
               Find conversations, contacts, shared files, and links across all your chats
             </p>
-            {searchQuery.trim().length === 1 && (
-              <p className="text-sm text-gray-400 mt-2">
-                Type at least 2 characters to search
-              </p>
-            )}
+            <p className="text-sm text-gray-400 mt-2">
+              Start typing to search...
+            </p>
           </div>
         ) : filteredResults.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-6">
@@ -281,7 +226,10 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
               No Results Found
             </h3>
             <p className="text-gray-500 text-center">
-              Try adjusting your search terms or filters
+              No matches found for "{searchQuery}"
+            </p>
+            <p className="text-sm text-gray-400 mt-1">
+              Try different keywords or check your spelling
             </p>
           </div>
         ) : (
@@ -313,7 +261,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
       </div>
 
       {/* Results Count */}
-      {searchQuery.trim().length >= 2 && filteredResults.length > 0 && (
+      {searchQuery.trim() && filteredResults.length > 0 && (
         <div className="px-4 py-2 border-t border-gray-100 bg-gray-50">
           <div className="flex items-center text-sm text-gray-600">
             <Clock size={14} className="mr-1" />

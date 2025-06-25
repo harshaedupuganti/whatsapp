@@ -34,6 +34,7 @@ export interface ChatMetadata {
   clearedAt?: string;
   lastUpdatedAt: string; // For WhatsApp-like sorting
   originalPosition?: number;
+  lastActivityAt?: string; // Track when last real activity happened
 }
 
 // Storage keys
@@ -98,7 +99,8 @@ export const saveMessagesToStorage = (contactId: string, messages: any[]) => {
     updateChatMetadata(contactId, { 
       ...metadata, 
       isCleared: false,
-      lastUpdatedAt: currentTime
+      lastUpdatedAt: currentTime,
+      lastActivityAt: currentTime // Track real activity
     });
     
     // Update last seen for the contact when new messages are added
@@ -177,7 +179,8 @@ export const getChatMetadata = (contactId: string): ChatMetadata => {
   
   return { 
     isCleared: false, 
-    lastUpdatedAt: new Date(0).toISOString() // Very old date for new chats
+    lastUpdatedAt: new Date(0).toISOString(), // Very old date for new chats
+    lastActivityAt: new Date(0).toISOString()
   };
 };
 
@@ -199,10 +202,13 @@ export const isChatCleared = (contactId: string): boolean => {
 // Mark chat as cleared and preserve position (WhatsApp-like behavior)
 export const markChatAsCleared = (contactId: string, originalPosition?: number) => {
   const currentTime = new Date().toISOString();
+  const existingMetadata = getChatMetadata(contactId);
+  
   const metadata: ChatMetadata = {
     isCleared: true,
     clearedAt: currentTime,
-    lastUpdatedAt: currentTime, // Keep current position when cleared
+    lastUpdatedAt: existingMetadata.lastActivityAt || currentTime, // Keep last activity time for positioning
+    lastActivityAt: existingMetadata.lastActivityAt, // Preserve original activity time
     originalPosition,
   };
   
@@ -214,7 +220,7 @@ export const markChatAsCleared = (contactId: string, originalPosition?: number) 
   // Update preview to reflect cleared state but maintain position
   const clearedPreview: ChatPreview = {
     lastMessage: '',
-    timestamp: currentTime,
+    timestamp: existingMetadata.lastActivityAt || currentTime,
     messageStatus: 'read',
     unreadCount: 0,
     isCleared: true,
@@ -362,7 +368,8 @@ export const chatHasRealMessages = (contactId: string): boolean => {
 // Get chat sort timestamp for WhatsApp-like ordering
 export const getChatSortTimestamp = (contactId: string): Date => {
   const metadata = getChatMetadata(contactId);
-  return new Date(metadata.lastUpdatedAt);
+  // Use lastActivityAt for sorting to maintain position after clearing
+  return new Date(metadata.lastActivityAt || metadata.lastUpdatedAt);
 };
 
 // Get chat position for sorting (legacy support)
@@ -371,9 +378,21 @@ export const getChatSortPosition = (contactId: string): number => {
   return metadata.originalPosition || 999; // Default to end if no position set
 };
 
+// Track chat opening without message activity (for proper sorting)
+export const trackChatOpened = (contactId: string) => {
+  // Only update lastUpdatedAt, not lastActivityAt
+  // This prevents chats from moving to top just by opening them
+  const metadata = getChatMetadata(contactId);
+  updateChatMetadata(contactId, {
+    ...metadata,
+    lastUpdatedAt: new Date().toISOString()
+    // Don't update lastActivityAt - only real messages should do that
+  });
+};
+
 // Enhanced search functionality with better filtering
 export const searchInMessages = (query: string, contactId?: string): StoredMessage[] => {
-  if (!query.trim() || query.trim().length < 2) return [];
+  if (!query.trim()) return [];
   
   const searchTerm = query.toLowerCase();
   const results: StoredMessage[] = [];

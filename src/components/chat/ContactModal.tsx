@@ -17,21 +17,6 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
   if (!isOpen) return null;
 
-  const formatLastSeen = (lastSeen?: Date) => {
-    if (!lastSeen) return 'Never';
-    const now = new Date();
-    const diff = now.getTime() - lastSeen.getTime();
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes} minute${minutes !== 1 ? 's' : ''} ago`;
-    if (hours < 24) return `${hours} hour${hours !== 1 ? 's' : ''} ago`;
-    if (days === 1) return 'Yesterday';
-    return `${days} days ago`;
-  };
-
   return (
     <>
       {/* Modal Overlay */}
@@ -80,18 +65,14 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                       className="w-24 h-24 rounded-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
                       onClick={() => setIsImageFullScreen(true)}
                     />
-                    {contact.isOnline && (
-                      <div className="absolute bottom-1 right-1 w-6 h-6 bg-green-500 rounded-full border-3 border-white"></div>
-                    )}
+                    {/* Removed online status indicator */}
                   </div>
                   
                   <h2 className="text-2xl font-bold text-gray-900 mb-1">
                     {contact.name}
                   </h2>
                   
-                  <p className="text-gray-500">
-                    {contact.isOnline ? 'Online' : `Last seen ${formatLastSeen(contact.lastSeen)}`}
-                  </p>
+                  {/* Removed status text */}
                 </div>
               </div>
               
@@ -106,17 +87,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                     </p>
                   </div>
                   
-                  <div className="bg-gray-50 rounded-xl p-4">
-                    <h3 className="font-semibold text-gray-900 mb-2">Status</h3>
-                    <div className="flex items-center">
-                      <div className={`w-3 h-3 rounded-full mr-2 ${
-                        contact.isOnline ? 'bg-green-500' : 'bg-gray-400'
-                      }`}></div>
-                      <span className="text-sm text-gray-600">
-                        {contact.isOnline ? 'Currently online' : `Last active ${formatLastSeen(contact.lastSeen)}`}
-                      </span>
-                    </div>
-                  </div>
+                  {/* Removed status section completely */}
                 </div>
               </div>
             </div>

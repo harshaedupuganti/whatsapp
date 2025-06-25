@@ -7,7 +7,8 @@ import {
   formatTimestamp, 
   getChatMetadata,
   chatHasRealMessages,
-  getChatSortTimestamp
+  getChatSortTimestamp,
+  trackChatOpened
 } from '../utils/chatStorage';
 
 interface ChatState {
@@ -107,9 +108,8 @@ const chatReducer = (state: ChatState, action: ChatAction): ChatState => {
         };
       });
       
-      // WhatsApp-like sorting: Sort ALL chats by last activity timestamp (most recent first)
-      // This ensures that when a message is sent/received, the chat moves to the top
-      // Cleared chats maintain their position based on when they were last active
+      // WhatsApp-like sorting: Sort by last ACTIVITY timestamp (not just opening)
+      // Only real message activity moves chats to the top
       const sortedChats = updatedChats.sort((a, b) => {
         const timeA = (a as any)._sortTimestamp?.getTime() || 0;
         const timeB = (b as any)._sortTimestamp?.getTime() || 0;
@@ -173,6 +173,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dispatch({ type: 'SET_SHOW_CHAT', payload: true });
     dispatch({ type: 'RESET_SEARCH' });
     dispatch({ type: 'CLEAR_UNREAD_COUNT', payload: chatId });
+    
+    // Track chat opening without affecting sort order
+    trackChatOpened(chatId);
   }, []);
 
   const closeChat = useCallback(() => {
@@ -192,6 +195,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dispatch({ type: 'SET_SHOW_CHAT', payload: true });
     dispatch({ type: 'SET_ACTIVE_TAB', payload: 'chats' });
     dispatch({ type: 'CLEAR_UNREAD_COUNT', payload: contactId });
+    
+    // Track chat opening without affecting sort order
+    trackChatOpened(contactId);
   }, []);
 
   const updateChatPreviews = useCallback(() => {
