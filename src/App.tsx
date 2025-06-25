@@ -7,6 +7,7 @@ import { BottomNavigation } from './components/BottomNavigation';
 import { ProfileModal } from './components/ProfileModal';
 import { ChatView } from './components/chat/ChatView';
 import { ChatProvider, useChatContext } from './contexts/ChatContext';
+import { SettingsProvider } from './contexts/SettingsContext';
 
 const AppContent: React.FC = () => {
   const { state, setActiveTab, openChat, closeChat, navigateToChat } = useChatContext();
@@ -109,9 +110,11 @@ const AppContent: React.FC = () => {
 
 function App() {
   return (
-    <ChatProvider>
-      <AppContent />
-    </ChatProvider>
+    <SettingsProvider>
+      <ChatProvider>
+        <AppContent />
+      </ChatProvider>
+    </SettingsProvider>
   );
 }
 
