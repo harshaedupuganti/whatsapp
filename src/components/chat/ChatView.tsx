@@ -9,6 +9,7 @@ import { DocumentViewer } from './DocumentViewer';
 import { OptionsMenu } from './OptionsMenu';
 import { getContactById, getMessagesByContactId } from '../../data/mockMessages';
 import { Message, ChatState } from '../../types/message';
+import { useChatContext } from '../../contexts/ChatContext';
 import { 
   saveMessagesToStorage, 
   loadMessagesFromStorage, 
@@ -28,16 +29,15 @@ interface ChatViewProps {
   onBack: () => void;
   searchQuery?: string;
   searchMessageId?: string;
-  onChatUpdate?: () => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({ 
   contactId, 
   onBack, 
   searchQuery = '', 
-  searchMessageId = '',
-  onChatUpdate
+  searchMessageId = ''
 }) => {
+  const { updateChatPreviews } = useChatContext();
   const contact = getContactById(contactId);
   const initialMessages = getMessagesByContactId(contactId);
   
@@ -103,9 +103,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (chatState.messages.length > 0) {
       saveMessagesToStorage(contactId, chatState.messages);
       // Notify parent component to update chat list (WhatsApp-like sorting)
-      onChatUpdate?.();
+      updateChatPreviews();
     }
-  }, [chatState.messages, contactId, onChatUpdate]);
+  }, [chatState.messages, contactId, updateChatPreviews]);
 
   // Update contact data when contactId changes
   useEffect(() => {
@@ -432,9 +432,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
       markChatAsCleared(contactId, chatIndex);
       
       // Notify parent to update chat list
-      onChatUpdate?.();
+      updateChatPreviews();
     }
-  }, [contactId, onChatUpdate, chatState.messages.length]);
+  }, [contactId, updateChatPreviews, chatState.messages.length]);
 
   if (!contact) {
     return (

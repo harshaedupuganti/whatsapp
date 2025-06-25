@@ -370,3 +370,37 @@ export const getChatSortPosition = (contactId: string): number => {
   const metadata = getChatMetadata(contactId);
   return metadata.originalPosition || 999; // Default to end if no position set
 };
+
+// Enhanced search functionality with better filtering
+export const searchInMessages = (query: string, contactId?: string): StoredMessage[] => {
+  if (!query.trim() || query.trim().length < 2) return [];
+  
+  const searchTerm = query.toLowerCase();
+  const results: StoredMessage[] = [];
+  
+  if (contactId) {
+    // Search in specific chat
+    if (!chatHasRealMessages(contactId)) return [];
+    
+    const messages = loadMessagesFromStorage(contactId);
+    messages.forEach(message => {
+      if (message.type === 'text' && message.content.toLowerCase().includes(searchTerm)) {
+        results.push(message);
+      }
+    });
+  } else {
+    // Search across all chats
+    const allMessages = loadAllMessagesFromStorage();
+    Object.entries(allMessages).forEach(([cId, messages]) => {
+      if (!chatHasRealMessages(cId)) return;
+      
+      messages.forEach(message => {
+        if (message.type === 'text' && message.content.toLowerCase().includes(searchTerm)) {
+          results.push(message);
+        }
+      });
+    });
+  }
+  
+  return results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+};

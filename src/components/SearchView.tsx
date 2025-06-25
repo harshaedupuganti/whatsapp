@@ -22,7 +22,8 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
   ];
 
   const filteredResults = useMemo(() => {
-    if (!searchQuery.trim()) return [];
+    // Don't show results for very short queries to prevent UI issues
+    if (!searchQuery.trim() || searchQuery.trim().length < 2) return [];
 
     const query = searchQuery.toLowerCase();
     let results: SearchResult[] = [];
@@ -98,7 +99,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
   }, [searchQuery, activeFilter]);
 
   const highlightText = (text: string, query: string) => {
-    if (!query.trim()) return text;
+    if (!query.trim() || query.trim().length < 2) return text;
     
     const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
     const parts = text.split(regex);
@@ -254,7 +255,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
-        {!searchQuery.trim() ? (
+        {!searchQuery.trim() || searchQuery.trim().length < 2 ? (
           <div className="flex flex-col items-center justify-center py-16 px-6">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
               <Search className="text-gray-400" size={32} />
@@ -265,6 +266,11 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
             <p className="text-gray-500 text-center leading-relaxed">
               Find conversations, contacts, shared files, and links across all your chats
             </p>
+            {searchQuery.trim().length === 1 && (
+              <p className="text-sm text-gray-400 mt-2">
+                Type at least 2 characters to search
+              </p>
+            )}
           </div>
         ) : filteredResults.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-6">
@@ -307,7 +313,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
       </div>
 
       {/* Results Count */}
-      {searchQuery.trim() && filteredResults.length > 0 && (
+      {searchQuery.trim().length >= 2 && filteredResults.length > 0 && (
         <div className="px-4 py-2 border-t border-gray-100 bg-gray-50">
           <div className="flex items-center text-sm text-gray-600">
             <Clock size={14} className="mr-1" />
