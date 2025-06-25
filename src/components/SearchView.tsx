@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, User, MessageSquare, File, Link, Clock } from 'lucide-react';
 import { mockSearchData } from '../data/mockSearchData';
 import { SearchResult, SearchFilter } from '../types/search';
-import { loadAllMessagesFromStorage } from '../utils/chatStorage';
+import { loadAllMessagesFromStorage, chatHasRealMessages } from '../utils/chatStorage';
 import { mockContacts } from '../data/mockMessages';
 
 interface SearchViewProps {
@@ -27,13 +27,16 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
     const query = searchQuery.toLowerCase();
     let results: SearchResult[] = [];
 
-    // Search in stored messages from all chats (excluding cleared chats)
+    // Search in stored messages from all chats (completely excluding cleared chats)
     if (activeFilter === 'all' || activeFilter === 'messages') {
       const allStoredMessages = loadAllMessagesFromStorage();
       
       Object.entries(allStoredMessages).forEach(([contactId, messages]) => {
         const contact = mockContacts[contactId];
         if (!contact) return;
+
+        // Double-check: Only include chats that have real messages (not cleared)
+        if (!chatHasRealMessages(contactId)) return;
 
         messages.forEach((message) => {
           if (message.type === 'text' && message.content.toLowerCase().includes(query)) {
@@ -56,7 +59,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
       });
     }
 
-    // Search in mock data (contacts, files, links)
+    // Search in mock data (contacts, files, links) - but exclude cleared chats
     const mockResults = mockSearchData.filter(item => {
       const matchesQuery = 
         item.title.toLowerCase().includes(query) ||
@@ -68,7 +71,15 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
       return matchesQuery && item.type === activeFilter;
     });
 
-    results = [...results, ...mockResults];
+    // Filter out results from cleared chats for mock data too
+    const filteredMockResults = mockResults.filter(result => {
+      if (result.contactId && !chatHasRealMessages(result.contactId)) {
+        return false; // Exclude results from cleared chats
+      }
+      return true;
+    });
+
+    results = [...results, ...filteredMockResults];
 
     // Sort by relevance and timestamp
     return results.sort((a, b) => {
@@ -117,8 +128,11 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
   };
 
   const handleResultClick = (result: SearchResult) => {
+    // Only navigate to chat if the chat has real messages (not cleared)
     if (result.type === 'messages' && result.contactId && result.messageId && onNavigateToChat) {
-      onNavigateToChat(result.contactId, searchQuery, result.messageId);
+      if (chatHasRealMessages(result.contactId)) {
+        onNavigateToChat(result.contactId, searchQuery, result.messageId);
+      }
     }
   };
 
@@ -269,7 +283,13 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
             {filteredResults.map((result) => (
               <div
                 key={result.id}
-                className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                className={`p-4 transition-colors ${
+                  result.type === 'messages' && result.contactId && chatHasRealMessages(result.contactId)
+                    ? 'hover:bg-gray-50 cursor-pointer'
+                    : result.type !== 'messages'
+                    ? 'hover:bg-gray-50 cursor-pointer'
+                    : 'opacity-50 cursor-not-allowed'
+                }`}
                 onClick={() => handleResultClick(result)}
               >
                 <div className="flex items-start">

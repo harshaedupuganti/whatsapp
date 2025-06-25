@@ -8,7 +8,14 @@ import { ProfileModal } from './components/ProfileModal';
 import { ChatView } from './components/chat/ChatView';
 import { mockChats } from './data/mockChats';
 import { TabType, Chat } from './types/chat';
-import { getChatPreview, getAllChatPreviews, formatTimestamp } from './utils/chatStorage';
+import { 
+  getChatPreview, 
+  getAllChatPreviews, 
+  formatTimestamp, 
+  getChatMetadata,
+  chatHasRealMessages,
+  getChatSortTimestamp
+} from './utils/chatStorage';
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabType>('chats');
@@ -24,58 +31,59 @@ function App() {
     contactName: '',
   });
 
-  // Update chat previews and sort by timestamp
+  // Update chat previews and sort WhatsApp-style (most recent activity first)
   const updateChatPreviews = useCallback(() => {
     const allPreviews = getAllChatPreviews();
     
-    const updatedChats = mockChats.map(chat => {
+    const updatedChats = mockChats.map((chat, originalIndex) => {
       const preview = getChatPreview(chat.id);
+      const metadata = getChatMetadata(chat.id);
+      const hasRealMessages = chatHasRealMessages(chat.id);
+      
       if (preview) {
         return {
           ...chat,
-          lastMessage: preview.lastMessage,
-          timestamp: formatTimestamp(new Date(preview.timestamp)),
-          messageStatus: { type: preview.messageStatus },
-          unreadCount: preview.unreadCount,
-          // Store raw timestamp for sorting
-          _rawTimestamp: new Date(preview.timestamp),
+          lastMessage: preview.lastMessage || '', // Empty for cleared chats
+          timestamp: preview.lastMessage ? formatTimestamp(new Date(preview.timestamp)) : chat.timestamp,
+          messageStatus: hasRealMessages ? { type: preview.messageStatus } : { type: 'read' }, // No status for cleared chats
+          unreadCount: hasRealMessages ? preview.unreadCount : 0, // No unread count for cleared chats
+          // Store metadata for sorting
+          _sortTimestamp: getChatSortTimestamp(chat.id),
+          _isCleared: metadata.isCleared,
+          _originalIndex: originalIndex,
+          _hasRealMessages: hasRealMessages,
         };
       }
       return {
         ...chat,
-        lastMessage: '', // Clear preview for cleared chats
-        _rawTimestamp: new Date(0), // Very old date for chats without messages
+        lastMessage: '', // Clear preview for chats without stored data
+        messageStatus: { type: 'read' }, // No status for empty chats
+        unreadCount: 0, // No unread count for empty chats
+        _sortTimestamp: new Date(0), // Very old date for chats without activity
+        _isCleared: false,
+        _originalIndex: originalIndex,
+        _hasRealMessages: false,
       };
     });
     
-    // Separate chats with messages from those without
-    const chatsWithMessages = updatedChats.filter(chat => {
-      const preview = getChatPreview(chat.id);
-      return preview && preview.lastMessage && preview.lastMessage.trim() !== '';
+    // WhatsApp-like sorting: Sort ALL chats by last activity timestamp (most recent first)
+    // This ensures that when a message is sent/received, the chat moves to the top
+    // Cleared chats maintain their position based on when they were last active
+    const sortedChats = updatedChats.sort((a, b) => {
+      const timeA = (a as any)._sortTimestamp?.getTime() || 0;
+      const timeB = (b as any)._sortTimestamp?.getTime() || 0;
+      
+      // Most recent activity first (WhatsApp behavior)
+      if (timeA !== timeB) {
+        return timeB - timeA;
+      }
+      
+      // If timestamps are equal, maintain original order
+      return (a as any)._originalIndex - (b as any)._originalIndex;
     });
     
-    const chatsWithoutMessages = updatedChats.filter(chat => {
-      const preview = getChatPreview(chat.id);
-      return !preview || !preview.lastMessage || preview.lastMessage.trim() === '';
-    });
-    
-    // Sort chats with messages by timestamp (most recent first)
-    const sortedChatsWithMessages = chatsWithMessages.sort((a, b) => {
-      const timeA = (a as any)._rawTimestamp?.getTime() || 0;
-      const timeB = (b as any)._rawTimestamp?.getTime() || 0;
-      return timeB - timeA;
-    });
-    
-    // Sort chats without messages alphabetically
-    const sortedChatsWithoutMessages = chatsWithoutMessages.sort((a, b) => {
-      return a.contactName.localeCompare(b.contactName);
-    });
-    
-    // Combine: active chats first, then inactive chats
-    const sortedChats = [...sortedChatsWithMessages, ...sortedChatsWithoutMessages];
-    
-    // Remove the temporary _rawTimestamp property
-    const cleanedChats = sortedChats.map(({ _rawTimestamp, ...chat }) => chat);
+    // Remove the temporary properties
+    const cleanedChats = sortedChats.map(({ _sortTimestamp, _isCleared, _originalIndex, _hasRealMessages, ...chat }) => chat);
     
     setChats(cleanedChats);
   }, []);

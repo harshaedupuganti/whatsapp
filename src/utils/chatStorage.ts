@@ -26,12 +26,21 @@ export interface ChatPreview {
   timestamp: string;
   messageStatus: 'sending' | 'sent' | 'delivered' | 'read';
   unreadCount: number;
+  isCleared?: boolean;
+}
+
+export interface ChatMetadata {
+  isCleared: boolean;
+  clearedAt?: string;
+  lastUpdatedAt: string; // For WhatsApp-like sorting
+  originalPosition?: number;
 }
 
 // Storage keys
 const getChatStorageKey = (contactId: string) => `chat_messages_${contactId}`;
 const getChatClearedKey = (contactId: string) => `chat_${contactId}_cleared`;
 const getChatPreviewKey = (contactId: string) => `chat_preview_${contactId}`;
+const getChatMetadataKey = (contactId: string) => `chat_metadata_${contactId}`;
 
 // Format timestamp consistently across the app
 export const formatTimestamp = (date: Date): string => {
@@ -50,7 +59,7 @@ export const formatTimestamp = (date: Date): string => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-// Save messages to localStorage with proper preview sync
+// Save messages to localStorage with proper preview sync and WhatsApp-like sorting
 export const saveMessagesToStorage = (contactId: string, messages: any[]) => {
   try {
     const storedMessages: StoredMessage[] = messages.map(msg => ({
@@ -61,11 +70,12 @@ export const saveMessagesToStorage = (contactId: string, messages: any[]) => {
     const lastMessage = messages[messages.length - 1];
     const lastMessagePreview = getLastMessagePreview(messages);
     const messageStatus = lastMessage?.isSent ? lastMessage.status : 'read';
+    const currentTime = new Date().toISOString();
     
     const chatData: StoredChatData = {
       messages: storedMessages,
       lastMessage: lastMessagePreview,
-      timestamp: messages.length > 0 ? messages[messages.length - 1].timestamp.toISOString() : new Date().toISOString(),
+      timestamp: messages.length > 0 ? messages[messages.length - 1].timestamp.toISOString() : currentTime,
       unreadCount: 0,
       messageStatus,
     };
@@ -78,12 +88,21 @@ export const saveMessagesToStorage = (contactId: string, messages: any[]) => {
       timestamp: chatData.timestamp,
       messageStatus: chatData.messageStatus,
       unreadCount: chatData.unreadCount,
+      isCleared: false,
     };
     
     localStorage.setItem(getChatPreviewKey(contactId), JSON.stringify(preview));
     
-    // Clear the cleared flag if messages are being saved
-    localStorage.removeItem(getChatClearedKey(contactId));
+    // Update metadata with new activity timestamp for WhatsApp-like sorting
+    const metadata = getChatMetadata(contactId);
+    updateChatMetadata(contactId, { 
+      ...metadata, 
+      isCleared: false,
+      lastUpdatedAt: currentTime
+    });
+    
+    // Update last seen for the contact when new messages are added
+    updateLastSeenTime(contactId);
   } catch (error) {
     console.error('Failed to save messages to storage:', error);
   }
@@ -111,7 +130,7 @@ export const loadMessagesFromStorage = (contactId: string): any[] => {
   }
 };
 
-// Load all messages from all chats for global search
+// Load all messages from all chats for global search (excluding cleared chats completely)
 export const loadAllMessagesFromStorage = (): { [contactId: string]: StoredMessage[] } => {
   const allMessages: { [contactId: string]: StoredMessage[] } = {};
   
@@ -122,7 +141,7 @@ export const loadAllMessagesFromStorage = (): { [contactId: string]: StoredMessa
       if (key && key.startsWith('chat_messages_')) {
         const contactId = key.replace('chat_messages_', '');
         
-        // Skip cleared chats
+        // Completely skip cleared chats - they should never appear in global search
         if (isChatCleared(contactId)) {
           continue;
         }
@@ -131,7 +150,10 @@ export const loadAllMessagesFromStorage = (): { [contactId: string]: StoredMessa
         
         if (stored) {
           const chatData: StoredChatData = JSON.parse(stored);
-          allMessages[contactId] = chatData.messages;
+          // Only include chats that have actual messages
+          if (chatData.messages && chatData.messages.length > 0) {
+            allMessages[contactId] = chatData.messages;
+          }
         }
       }
     }
@@ -142,32 +164,84 @@ export const loadAllMessagesFromStorage = (): { [contactId: string]: StoredMessa
   return allMessages;
 };
 
+// Get or create chat metadata with WhatsApp-like sorting support
+export const getChatMetadata = (contactId: string): ChatMetadata => {
+  try {
+    const stored = localStorage.getItem(getChatMetadataKey(contactId));
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (error) {
+    console.error('Failed to load chat metadata:', error);
+  }
+  
+  return { 
+    isCleared: false, 
+    lastUpdatedAt: new Date(0).toISOString() // Very old date for new chats
+  };
+};
+
+// Update chat metadata
+export const updateChatMetadata = (contactId: string, metadata: ChatMetadata) => {
+  try {
+    localStorage.setItem(getChatMetadataKey(contactId), JSON.stringify(metadata));
+  } catch (error) {
+    console.error('Failed to update chat metadata:', error);
+  }
+};
+
 // Check if chat is cleared
 export const isChatCleared = (contactId: string): boolean => {
-  return localStorage.getItem(getChatClearedKey(contactId)) === 'true';
+  const metadata = getChatMetadata(contactId);
+  return metadata.isCleared;
 };
 
-// Mark chat as cleared and clean up all related data
-export const markChatAsCleared = (contactId: string) => {
-  localStorage.setItem(getChatClearedKey(contactId), 'true');
+// Mark chat as cleared and preserve position (WhatsApp-like behavior)
+export const markChatAsCleared = (contactId: string, originalPosition?: number) => {
+  const currentTime = new Date().toISOString();
+  const metadata: ChatMetadata = {
+    isCleared: true,
+    clearedAt: currentTime,
+    lastUpdatedAt: currentTime, // Keep current position when cleared
+    originalPosition,
+  };
+  
+  updateChatMetadata(contactId, metadata);
+  
+  // Remove messages completely for cleared chats
   localStorage.removeItem(getChatStorageKey(contactId));
-  localStorage.removeItem(getChatPreviewKey(contactId));
+  
+  // Update preview to reflect cleared state but maintain position
+  const clearedPreview: ChatPreview = {
+    lastMessage: '',
+    timestamp: currentTime,
+    messageStatus: 'read',
+    unreadCount: 0,
+    isCleared: true,
+  };
+  
+  localStorage.setItem(getChatPreviewKey(contactId), JSON.stringify(clearedPreview));
 };
 
-// Get chat preview data with fallback - returns null for cleared chats with no new messages
+// Get chat preview data with proper cleared chat handling
 export const getChatPreview = (contactId: string): ChatPreview | null => {
   try {
-    // If chat is cleared and has no new messages, return null
-    if (isChatCleared(contactId)) {
-      return null;
-    }
-    
     const stored = localStorage.getItem(getChatPreviewKey(contactId));
     if (!stored) return null;
     
-    const preview = JSON.parse(stored);
+    const preview: ChatPreview = JSON.parse(stored);
     
-    // Return null if the preview shows no actual message content
+    // For cleared chats, return preview but with empty message content
+    if (preview.isCleared) {
+      return {
+        ...preview,
+        lastMessage: '',
+        unreadCount: 0,
+        messageStatus: 'read',
+      };
+    }
+    
+    // Return null if the preview shows no actual message content for non-cleared chats
     if (!preview.lastMessage || preview.lastMessage.trim() === '') {
       return null;
     }
@@ -179,7 +253,7 @@ export const getChatPreview = (contactId: string): ChatPreview | null => {
   }
 };
 
-// Get all chat previews for sorting
+// Get all chat previews for WhatsApp-like sorting
 export const getAllChatPreviews = (): { [contactId: string]: ChatPreview } => {
   const previews: { [contactId: string]: ChatPreview } = {};
   
@@ -189,7 +263,9 @@ export const getAllChatPreviews = (): { [contactId: string]: ChatPreview } => {
       if (key && key.startsWith('chat_preview_')) {
         const contactId = key.replace('chat_preview_', '');
         const preview = getChatPreview(contactId);
-        if (preview) {
+        
+        // Include all previews, including cleared ones for position tracking
+        if (preview !== null) {
           previews[contactId] = preview;
         }
       }
@@ -248,4 +324,49 @@ export const updateMessageStatusInStorage = (contactId: string, messageId: strin
   } catch (error) {
     console.error('Failed to update message status:', error);
   }
+};
+
+// Update last seen time for real-time interaction tracking
+export const updateLastSeenTime = (contactId: string) => {
+  try {
+    const lastSeenKey = `contact_${contactId}_last_seen`;
+    localStorage.setItem(lastSeenKey, new Date().toISOString());
+  } catch (error) {
+    console.error('Failed to update last seen time:', error);
+  }
+};
+
+// Get last seen time for a contact
+export const getLastSeenTime = (contactId: string): Date | null => {
+  try {
+    const lastSeenKey = `contact_${contactId}_last_seen`;
+    const stored = localStorage.getItem(lastSeenKey);
+    if (stored) {
+      return new Date(stored);
+    }
+  } catch (error) {
+    console.error('Failed to get last seen time:', error);
+  }
+  return null;
+};
+
+// Check if a chat has any real messages (not cleared)
+export const chatHasRealMessages = (contactId: string): boolean => {
+  const metadata = getChatMetadata(contactId);
+  if (metadata.isCleared) return false;
+  
+  const messages = loadMessagesFromStorage(contactId);
+  return messages.length > 0;
+};
+
+// Get chat sort timestamp for WhatsApp-like ordering
+export const getChatSortTimestamp = (contactId: string): Date => {
+  const metadata = getChatMetadata(contactId);
+  return new Date(metadata.lastUpdatedAt);
+};
+
+// Get chat position for sorting (legacy support)
+export const getChatSortPosition = (contactId: string): number => {
+  const metadata = getChatMetadata(contactId);
+  return metadata.originalPosition || 999; // Default to end if no position set
 };
