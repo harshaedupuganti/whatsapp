@@ -1,35 +1,41 @@
 import React, { useState, useMemo } from 'react';
 import { Search, User, MessageSquare, File, Link, Clock } from 'lucide-react';
-import { mockSearchData } from '../data/mockSearchData.ts';
-import { SearchResult, SearchFilter } from '../types/search';
+import { performSearch, rebuildSearchIndex, SearchResult } from '../utils/searchEngine';
+import { chatHasRealMessages } from '../utils/chatStorage';
 
-export const SearchView: React.FC = () => {
+interface SearchViewProps {
+  onNavigateToChat?: (contactId: string, searchQuery: string, messageId: string) => void;
+}
+
+export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<SearchFilter>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'contacts' | 'messages' | 'files' | 'links'>('all');
 
   const filters = [
-    { id: 'all' as SearchFilter, label: 'All', icon: Search },
-    { id: 'contacts' as SearchFilter, label: 'Contacts', icon: User },
-    { id: 'messages' as SearchFilter, label: 'Messages', icon: MessageSquare },
-    { id: 'files' as SearchFilter, label: 'Files', icon: File },
-    { id: 'links' as SearchFilter, label: 'Links', icon: Link },
+    { id: 'all' as const, label: 'All', icon: Search },
+    { id: 'contacts' as const, label: 'Contacts', icon: User },
+    { id: 'messages' as const, label: 'Messages', icon: MessageSquare },
+    { id: 'files' as const, label: 'Files', icon: File },
+    { id: 'links' as const, label: 'Links', icon: Link },
   ];
 
+  // Rebuild search index when component mounts to ensure fresh data
+  React.useEffect(() => {
+    rebuildSearchIndex();
+  }, []);
+
   const filteredResults = useMemo(() => {
+    // Allow search with just 1 character
     if (!searchQuery.trim()) return [];
 
-    const query = searchQuery.toLowerCase();
-    let results = mockSearchData.filter(item => {
-      const matchesQuery = 
-        item.title.toLowerCase().includes(query) ||
-        item.content.toLowerCase().includes(query) ||
-        (item.contactName && item.contactName.toLowerCase().includes(query));
-
-      if (activeFilter === 'all') return matchesQuery;
-      return matchesQuery && item.type === activeFilter;
-    });
-
-    return results;
+    const allResults = performSearch(searchQuery);
+    
+    // Filter by active filter type
+    if (activeFilter === 'all') {
+      return allResults;
+    }
+    
+    return allResults.filter(result => result.type === activeFilter);
   }, [searchQuery, activeFilter]);
 
   const highlightText = (text: string, query: string) => {
@@ -60,6 +66,17 @@ export const SearchView: React.FC = () => {
       default:
         return <Search size={20} className="text-gray-600" />;
     }
+  };
+
+  const handleResultClick = (result: SearchResult) => {
+    // Only navigate to chat for messages from active chats
+    if (result.type === 'messages' && result.contactId && result.messageId && onNavigateToChat) {
+      if (chatHasRealMessages(result.contactId)) {
+        onNavigateToChat(result.contactId, searchQuery, result.messageId);
+      }
+    }
+    // For other types, you could implement specific actions
+    // For now, we'll just handle message navigation
   };
 
   const getResultPreview = (result: SearchResult) => {
@@ -107,9 +124,14 @@ export const SearchView: React.FC = () => {
               <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-2">
                 <File size={16} className="text-blue-600" />
               </div>
-              <p className="text-gray-700">
-                {highlightText(result.title, searchQuery)}
-              </p>
+              <div>
+                <p className="text-gray-700 font-medium">
+                  {highlightText(result.title, searchQuery)}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {result.fileType} • {result.fileSize}
+                </p>
+              </div>
             </div>
           </div>
         );
@@ -126,7 +148,7 @@ export const SearchView: React.FC = () => {
               <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-2">
                 <Link size={16} className="text-purple-600" />
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="text-gray-700 font-medium">
                   {highlightText(result.title, searchQuery)}
                 </p>
@@ -191,6 +213,9 @@ export const SearchView: React.FC = () => {
             <p className="text-gray-500 text-center leading-relaxed">
               Find conversations, contacts, shared files, and links across all your chats
             </p>
+            <p className="text-sm text-gray-400 mt-2">
+              Start typing to search...
+            </p>
           </div>
         ) : filteredResults.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-6">
@@ -201,7 +226,10 @@ export const SearchView: React.FC = () => {
               No Results Found
             </h3>
             <p className="text-gray-500 text-center">
-              Try adjusting your search terms or filters
+              No matches found for "{searchQuery}"
+            </p>
+            <p className="text-sm text-gray-400 mt-1">
+              Try different keywords or check your spelling
             </p>
           </div>
         ) : (
@@ -209,7 +237,14 @@ export const SearchView: React.FC = () => {
             {filteredResults.map((result) => (
               <div
                 key={result.id}
-                className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                className={`p-4 transition-colors ${
+                  result.type === 'messages' && result.contactId && chatHasRealMessages(result.contactId)
+                    ? 'hover:bg-gray-50 cursor-pointer'
+                    : result.type !== 'messages'
+                    ? 'hover:bg-gray-50 cursor-pointer'
+                    : 'opacity-50 cursor-not-allowed'
+                }`}
+                onClick={() => handleResultClick(result)}
               >
                 <div className="flex items-start">
                   <div className="flex-shrink-0 mr-3 mt-1">

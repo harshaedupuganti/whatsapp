@@ -1,6 +1,7 @@
 import React from 'react';
 import { Chat } from '../types/chat';
 import { MessageStatusIcon } from './MessageStatusIcon';
+import { chatHasRealMessages } from '../utils/chatStorage';
 
 interface ChatItemProps {
   chat: Chat;
@@ -8,6 +9,10 @@ interface ChatItemProps {
 }
 
 export const ChatItem: React.FC<ChatItemProps> = ({ chat, onProfileClick }) => {
+  const hasRealMessages = chatHasRealMessages(chat.id);
+  const showMessageStatus = hasRealMessages && chat.lastMessage.trim() !== '';
+  const showUnreadCount = hasRealMessages && chat.unreadCount > 0;
+
   return (
     <div className="flex items-center p-4 hover:bg-gray-50 transition-colors cursor-pointer border-b border-gray-100 last:border-b-0">
       <div className="relative flex-shrink-0 mr-3">
@@ -28,7 +33,7 @@ export const ChatItem: React.FC<ChatItemProps> = ({ chat, onProfileClick }) => {
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-1">
           <h3 className={`font-medium text-gray-900 truncate ${
-            chat.unreadCount > 0 ? 'font-semibold' : ''
+            showUnreadCount ? 'font-semibold' : ''
           }`}>
             {chat.contactName}
           </h3>
@@ -39,19 +44,21 @@ export const ChatItem: React.FC<ChatItemProps> = ({ chat, onProfileClick }) => {
         
         <div className="flex items-center justify-between">
           <div className="flex items-center min-w-0 flex-1">
-            <div className="mr-2 flex-shrink-0">
-              <MessageStatusIcon status={chat.messageStatus} />
-            </div>
+            {showMessageStatus && (
+              <div className="mr-2 flex-shrink-0">
+                <MessageStatusIcon status={chat.messageStatus} showIcon={showMessageStatus} />
+              </div>
+            )}
             <p className={`text-sm truncate ${
-              chat.unreadCount > 0 
+              showUnreadCount 
                 ? 'text-gray-900 font-medium' 
                 : 'text-gray-600'
             }`}>
-              {chat.lastMessage}
+              {chat.lastMessage || (hasRealMessages ? '' : '')}
             </p>
           </div>
           
-          {chat.unreadCount > 0 && (
+          {showUnreadCount && (
             <div className="ml-2 flex-shrink-0">
               <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium text-white bg-primary-500 rounded-full">
                 {chat.unreadCount > 9 ? '9+' : chat.unreadCount}
