@@ -1,9 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { Search, User, MessageSquare, File, Link, Clock } from 'lucide-react';
-import { mockSearchData } from '../data/mockSearchData.ts';
+import { mockSearchData } from '../data/mockSearchData';
 import { SearchResult, SearchFilter } from '../types/search';
+import { loadAllMessagesFromStorage } from '../utils/chatStorage';
+import { mockContacts } from '../data/mockMessages';
 
-export const SearchView: React.FC = () => {
+interface SearchViewProps {
+  onNavigateToChat?: (contactId: string, searchQuery: string, messageId: string) => void;
+}
+
+export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<SearchFilter>('all');
 
@@ -19,17 +25,65 @@ export const SearchView: React.FC = () => {
     if (!searchQuery.trim()) return [];
 
     const query = searchQuery.toLowerCase();
-    let results = mockSearchData.filter(item => {
+    let results: SearchResult[] = [];
+
+    // Search in stored messages from all chats (excluding cleared chats)
+    if (activeFilter === 'all' || activeFilter === 'messages') {
+      const allStoredMessages = loadAllMessagesFromStorage();
+      
+      Object.entries(allStoredMessages).forEach(([contactId, messages]) => {
+        const contact = mockContacts[contactId];
+        if (!contact) return;
+
+        messages.forEach((message) => {
+          if (message.type === 'text' && message.content.toLowerCase().includes(query)) {
+            results.push({
+              id: `message-${contactId}-${message.id}`,
+              type: 'messages',
+              title: message.content.substring(0, 50) + (message.content.length > 50 ? '...' : ''),
+              content: message.content,
+              timestamp: new Date(message.timestamp).toLocaleString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+              }),
+              contactName: contact.name,
+              contactId,
+              messageId: message.id,
+            });
+          }
+        });
+      });
+    }
+
+    // Search in mock data (contacts, files, links)
+    const mockResults = mockSearchData.filter(item => {
       const matchesQuery = 
         item.title.toLowerCase().includes(query) ||
         item.content.toLowerCase().includes(query) ||
         (item.contactName && item.contactName.toLowerCase().includes(query));
 
       if (activeFilter === 'all') return matchesQuery;
+      if (activeFilter === 'messages') return false; // Already handled above
       return matchesQuery && item.type === activeFilter;
     });
 
-    return results;
+    results = [...results, ...mockResults];
+
+    // Sort by relevance and timestamp
+    return results.sort((a, b) => {
+      // Prioritize exact matches
+      const aExact = a.title.toLowerCase() === query || a.content.toLowerCase() === query;
+      const bExact = b.title.toLowerCase() === query || b.content.toLowerCase() === query;
+      
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      
+      // Then sort by timestamp (most recent first)
+      const aTime = new Date(a.timestamp).getTime();
+      const bTime = new Date(b.timestamp).getTime();
+      return bTime - aTime;
+    });
   }, [searchQuery, activeFilter]);
 
   const highlightText = (text: string, query: string) => {
@@ -59,6 +113,12 @@ export const SearchView: React.FC = () => {
         return <Link size={20} className="text-purple-600" />;
       default:
         return <Search size={20} className="text-gray-600" />;
+    }
+  };
+
+  const handleResultClick = (result: SearchResult) => {
+    if (result.type === 'messages' && result.contactId && result.messageId && onNavigateToChat) {
+      onNavigateToChat(result.contactId, searchQuery, result.messageId);
     }
   };
 
@@ -210,6 +270,7 @@ export const SearchView: React.FC = () => {
               <div
                 key={result.id}
                 className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                onClick={() => handleResultClick(result)}
               >
                 <div className="flex items-start">
                   <div className="flex-shrink-0 mr-3 mt-1">
