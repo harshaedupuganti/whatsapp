@@ -18,7 +18,9 @@ import {
   openDocumentExternally,
   updateMessageStatusInStorage,
   updateLastSeenTime,
-  getLastSeenTime
+  getLastSeenTime,
+  updateChatMetadata,
+  getChatMetadata
 } from '../../utils/chatStorage';
 
 interface ChatViewProps {
@@ -100,7 +102,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   useEffect(() => {
     if (chatState.messages.length > 0) {
       saveMessagesToStorage(contactId, chatState.messages);
-      // Notify parent component to update chat list
+      // Notify parent component to update chat list (WhatsApp-like sorting)
       onChatUpdate?.();
     }
   }, [chatState.messages, contactId, onChatUpdate]);
@@ -153,10 +155,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
       status: 'sending',
     };
 
+    // Immediately add message to state for instant UI update
     setChatState(prev => ({
       ...prev,
       messages: [...prev.messages, newMessage],
     }));
+
+    // Update chat metadata to move to top of list (WhatsApp behavior)
+    const metadata = getChatMetadata(contactId);
+    updateChatMetadata(contactId, {
+      ...metadata,
+      lastUpdatedAt: new Date().toISOString(),
+      isCleared: false
+    });
 
     // Simulate message status updates with proper storage sync
     setTimeout(() => {
@@ -242,6 +253,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
       messages: [...prev.messages, newMessage],
     }));
 
+    // Update chat metadata for WhatsApp-like sorting
+    const metadata = getChatMetadata(contactId);
+    updateChatMetadata(contactId, {
+      ...metadata,
+      lastUpdatedAt: new Date().toISOString(),
+      isCleared: false
+    });
+
     // Simulate status updates with storage sync
     setTimeout(() => {
       setChatState(prev => ({
@@ -292,6 +311,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
       ...prev,
       messages: [...prev.messages, newMessage],
     }));
+
+    // Update chat metadata for WhatsApp-like sorting
+    const metadata = getChatMetadata(contactId);
+    updateChatMetadata(contactId, {
+      ...metadata,
+      lastUpdatedAt: new Date().toISOString(),
+      isCleared: false
+    });
 
     // Simulate status updates with storage sync
     setTimeout(() => {

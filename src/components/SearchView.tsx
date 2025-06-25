@@ -27,7 +27,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
     const query = searchQuery.toLowerCase();
     let results: SearchResult[] = [];
 
-    // Search in stored messages from all chats (excluding cleared chats and deleted messages)
+    // Search in stored messages from all chats (completely excluding cleared chats)
     if (activeFilter === 'all' || activeFilter === 'messages') {
       const allStoredMessages = loadAllMessagesFromStorage();
       
@@ -35,7 +35,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
         const contact = mockContacts[contactId];
         if (!contact) return;
 
-        // Only include chats that have real messages (not cleared)
+        // Double-check: Only include chats that have real messages (not cleared)
         if (!chatHasRealMessages(contactId)) return;
 
         messages.forEach((message) => {

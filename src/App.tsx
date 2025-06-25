@@ -14,7 +14,7 @@ import {
   formatTimestamp, 
   getChatMetadata,
   chatHasRealMessages,
-  getChatSortPosition
+  getChatSortTimestamp
 } from './utils/chatStorage';
 
 function App() {
@@ -31,7 +31,7 @@ function App() {
     contactName: '',
   });
 
-  // Update chat previews and sort by timestamp with proper cleared chat handling
+  // Update chat previews and sort WhatsApp-style (most recent activity first)
   const updateChatPreviews = useCallback(() => {
     const allPreviews = getAllChatPreviews();
     
@@ -47,8 +47,8 @@ function App() {
           timestamp: preview.lastMessage ? formatTimestamp(new Date(preview.timestamp)) : chat.timestamp,
           messageStatus: hasRealMessages ? { type: preview.messageStatus } : { type: 'read' }, // No status for cleared chats
           unreadCount: hasRealMessages ? preview.unreadCount : 0, // No unread count for cleared chats
-          // Store raw timestamp and metadata for sorting
-          _rawTimestamp: preview.lastMessage ? new Date(preview.timestamp) : new Date(0),
+          // Store metadata for sorting
+          _sortTimestamp: getChatSortTimestamp(chat.id),
           _isCleared: metadata.isCleared,
           _originalIndex: originalIndex,
           _hasRealMessages: hasRealMessages,
@@ -59,43 +59,31 @@ function App() {
         lastMessage: '', // Clear preview for chats without stored data
         messageStatus: { type: 'read' }, // No status for empty chats
         unreadCount: 0, // No unread count for empty chats
-        _rawTimestamp: new Date(0), // Very old date for chats without messages
+        _sortTimestamp: new Date(0), // Very old date for chats without activity
         _isCleared: false,
         _originalIndex: originalIndex,
         _hasRealMessages: false,
       };
     });
     
-    // Separate chats with real messages from those without
-    const chatsWithMessages = updatedChats.filter(chat => (chat as any)._hasRealMessages);
-    const chatsWithoutMessages = updatedChats.filter(chat => !(chat as any)._hasRealMessages);
-    
-    // Sort chats with messages by timestamp (most recent first)
-    const sortedChatsWithMessages = chatsWithMessages.sort((a, b) => {
-      const timeA = (a as any)._rawTimestamp?.getTime() || 0;
-      const timeB = (b as any)._rawTimestamp?.getTime() || 0;
-      return timeB - timeA;
-    });
-    
-    // For chats without messages, maintain original order for cleared chats, alphabetical for others
-    const clearedChats = chatsWithoutMessages.filter(chat => (chat as any)._isCleared);
-    const emptyChatsSorted = chatsWithoutMessages.filter(chat => !(chat as any)._isCleared);
-    
-    // Sort cleared chats by original position to maintain their place
-    const sortedClearedChats = clearedChats.sort((a, b) => {
+    // WhatsApp-like sorting: Sort ALL chats by last activity timestamp (most recent first)
+    // This ensures that when a message is sent/received, the chat moves to the top
+    // Cleared chats maintain their position based on when they were last active
+    const sortedChats = updatedChats.sort((a, b) => {
+      const timeA = (a as any)._sortTimestamp?.getTime() || 0;
+      const timeB = (b as any)._sortTimestamp?.getTime() || 0;
+      
+      // Most recent activity first (WhatsApp behavior)
+      if (timeA !== timeB) {
+        return timeB - timeA;
+      }
+      
+      // If timestamps are equal, maintain original order
       return (a as any)._originalIndex - (b as any)._originalIndex;
     });
     
-    // Sort empty chats alphabetically
-    const sortedEmptyChats = emptyChatsSorted.sort((a, b) => {
-      return a.contactName.localeCompare(b.contactName);
-    });
-    
-    // Combine: active chats first, then cleared chats in original position, then empty chats
-    const sortedChats = [...sortedChatsWithMessages, ...sortedClearedChats, ...sortedEmptyChats];
-    
     // Remove the temporary properties
-    const cleanedChats = sortedChats.map(({ _rawTimestamp, _isCleared, _originalIndex, _hasRealMessages, ...chat }) => chat);
+    const cleanedChats = sortedChats.map(({ _sortTimestamp, _isCleared, _originalIndex, _hasRealMessages, ...chat }) => chat);
     
     setChats(cleanedChats);
   }, []);

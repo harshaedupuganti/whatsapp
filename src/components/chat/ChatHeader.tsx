@@ -18,20 +18,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 }) => {
   const [showContactModal, setShowContactModal] = useState(false);
 
-  const formatLastSeen = (lastSeen?: Date) => {
-    if (!lastSeen) return '';
-    const now = new Date();
-    const diff = now.getTime() - lastSeen.getTime();
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 1) return 'last seen just now';
-    if (minutes < 60) return `last seen ${minutes}m ago`;
-    if (hours < 24) return `last seen ${hours}h ago`;
-    return `last seen ${days}d ago`;
-  };
-
   return (
     <>
       <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 px-4 py-3 z-50 safe-area-top">
@@ -68,9 +54,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                     <BellOff size={16} className="text-gray-500 flex-shrink-0" />
                   )}
                 </div>
-                <p className="text-sm text-gray-500 truncate">
-                  {contact.isOnline ? 'online' : formatLastSeen(contact.lastSeen)}
-                </p>
               </div>
             </div>
           </div>
