@@ -4,9 +4,15 @@ import { MessageStatus } from '../types/chat';
 
 interface MessageStatusIconProps {
   status: MessageStatus;
+  showIcon?: boolean; // New prop to control visibility
 }
 
-export const MessageStatusIcon: React.FC<MessageStatusIconProps> = ({ status }) => {
+export const MessageStatusIcon: React.FC<MessageStatusIconProps> = ({ status, showIcon = true }) => {
+  // Don't show any icon if showIcon is false (for cleared chats)
+  if (!showIcon) {
+    return null;
+  }
+
   switch (status.type) {
     case 'sent':
       return <Check size={16} className="text-gray-400" />;

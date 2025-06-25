@@ -16,7 +16,9 @@ import {
   markChatAsCleared,
   shouldOpenDocumentExternally,
   openDocumentExternally,
-  updateMessageStatusInStorage
+  updateMessageStatusInStorage,
+  updateLastSeenTime,
+  getLastSeenTime
 } from '../../utils/chatStorage';
 
 interface ChatViewProps {
@@ -110,9 +112,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (newContact) {
       const newMessages = getInitialMessages();
       
+      // Update last seen time from storage if available
+      const lastSeenFromStorage = getLastSeenTime(contactId);
+      const updatedContact = lastSeenFromStorage 
+        ? { ...newContact, lastSeen: lastSeenFromStorage }
+        : newContact;
+      
       setChatState(prev => ({
         ...prev,
-        contact: newContact,
+        contact: updatedContact,
         messages: newMessages,
         isTyping: false,
         searchQuery: '',
@@ -205,7 +213,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
           ),
           responseMessage,
         ],
+        // Update contact's last seen time when receiving a reply
+        contact: {
+          ...prev.contact,
+          lastSeen: new Date(),
+        },
       }));
+
+      // Update last seen time in storage for real-time tracking
+      updateLastSeenTime(contactId);
     }, 5000);
   }, [contactId]);
 
@@ -380,13 +396,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const handleClearChat = useCallback(() => {
     if (confirm('Are you sure you want to clear this chat? This action cannot be undone.')) {
+      // Find the original position of this chat in the chat list
+      const chatIndex = chatState.messages.length > 0 ? 0 : 999; // Use 0 for active chats, high number for inactive
+      
       setChatState(prev => ({ ...prev, messages: [] }));
-      // Mark chat as cleared and remove from storage
-      markChatAsCleared(contactId);
+      
+      // Mark chat as cleared with position tracking
+      markChatAsCleared(contactId, chatIndex);
+      
       // Notify parent to update chat list
       onChatUpdate?.();
     }
-  }, [contactId, onChatUpdate]);
+  }, [contactId, onChatUpdate, chatState.messages.length]);
 
   if (!contact) {
     return (
