@@ -11,4 +11,6 @@ export interface SearchResult {
   fileSize?: string;
   fileType?: string;
   url?: string;
+  contactId?: string;
+  messageId?: string;
 }

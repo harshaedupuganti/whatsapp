@@ -13,7 +13,7 @@ export const MessageStatusIcon: React.FC<MessageStatusIconProps> = ({ status }) 
     case 'delivered':
       return <CheckCheck size={16} className="text-gray-400" />;
     case 'seen':
-      return <CheckCheck size={16} className="text-primary-500" />;
+      return <CheckCheck size={16} className="text-blue-500" />;
     default:
       return null;
   }
