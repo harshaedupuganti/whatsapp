@@ -1,0 +1,207 @@
+{
+  "name": "Quiddity Chat - Authentication",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "auth/login",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-login",
+      "name": "Login Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "auth-login"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "auth/register",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-register",
+      "name": "Register Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "webhookId": "auth-register"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "auth/refresh",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-refresh",
+      "name": "Refresh Token Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 700],
+      "webhookId": "auth-refresh"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, email, password_hash, display_name, profile_image, phone_number, created_at FROM users WHERE email = $1 AND is_active = true",
+        "additionalFields": {
+          "queryParameters": "={{ [$node[\"Login Webhook\"].json[\"body\"][\"email\"]] }}"
+        }
+      },
+      "id": "postgres-login",
+      "name": "Check User Credentials",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-main",
+          "name": "PostgreSQL Main"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $node[\"Check User Credentials\"].json.length }}",
+              "operation": "equal",
+              "value2": "1"
+            }
+          ]
+        }
+      },
+      "id": "if-user-exists",
+      "name": "User Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const bcrypt = require('bcrypt');\nconst jwt = require('jsonwebtoken');\n\nconst user = items[0].json;\nconst inputPassword = $node[\"Login Webhook\"].json[\"body\"][\"password\"];\n\n// Verify password\nconst isValidPassword = await bcrypt.compare(inputPassword, user.password_hash);\n\nif (!isValidPassword) {\n  return [{\n    json: {\n      success: false,\n      error: 'Invalid credentials'\n    }\n  }];\n}\n\n// Generate tokens\nconst accessToken = jwt.sign(\n  { \n    userId: user.id, \n    email: user.email \n  },\n  process.env.JWT_SECRET,\n  { expiresIn: '15m' }\n);\n\nconst refreshToken = jwt.sign(\n  { \n    userId: user.id, \n    type: 'refresh' \n  },\n  process.env.JWT_REFRESH_SECRET,\n  { expiresIn: '7d' }\n);\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      accessToken,\n      refreshToken,\n      expiresIn: 900, // 15 minutes\n      refreshExpiresIn: 604800, // 7 days\n      user: {\n        id: user.id,\n        email: user.email,\n        displayName: user.display_name,\n        profileImage: user.profile_image,\n        phoneNumber: user.phone_number\n      }\n    }\n  }\n}];"
+      },
+      "id": "generate-tokens",
+      "name": "Generate JWT Tokens",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 240]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE users SET last_login_at = NOW(), refresh_token = $1 WHERE id = $2",
+        "additionalFields": {
+          "queryParameters": "={{ [$node[\"Generate JWT Tokens\"].json[\"data\"][\"refreshToken\"], $node[\"Check User Credentials\"].json[0][\"id\"]] }}"
+        }
+      },
+      "id": "update-login",
+      "name": "Update Last Login",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1120, 240],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-main",
+          "name": "PostgreSQL Main"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $node[\"Generate JWT Tokens\"].json }}"
+      },
+      "id": "login-response",
+      "name": "Login Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 240]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Invalid credentials\"\n}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "login-error",
+      "name": "Login Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 360]
+    }
+  ],
+  "connections": {
+    "Login Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check User Credentials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check User Credentials": {
+      "main": [
+        [
+          {
+            "node": "User Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "User Exists?": {
+      "main": [
+        [
+          {
+            "node": "Generate JWT Tokens",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate JWT Tokens": {
+      "main": [
+        [
+          {
+            "node": "Update Last Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Last Login": {
+      "main": [
+        [
+          {
+            "node": "Login Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {},
+  "versionId": "1"
+}

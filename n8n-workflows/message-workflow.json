@@ -1,0 +1,227 @@
+{
+  "name": "Quiddity Chat - Messages",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "messages/send",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-send",
+      "name": "Send Message Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "messages-send"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "messages/poll",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-poll",
+      "name": "Poll Messages Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "webhookId": "messages-poll"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "messages/typing",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-typing",
+      "name": "Typing Indicator Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 700],
+      "webhookId": "messages-typing"
+    },
+    {
+      "parameters": {
+        "functionCode": "const jwt = require('jsonwebtoken');\n\nconst authHeader = $node[\"Send Message Webhook\"].json[\"headers\"][\"authorization\"];\nif (!authHeader || !authHeader.startsWith('Bearer ')) {\n  return [{\n    json: {\n      success: false,\n      error: 'No authorization token provided',\n      statusCode: 401\n    }\n  }];\n}\n\nconst token = authHeader.substring(7);\n\ntry {\n  const decoded = jwt.verify(token, process.env.JWT_SECRET);\n  return [{\n    json: {\n      success: true,\n      userId: decoded.userId,\n      email: decoded.email\n    }\n  }];\n} catch (error) {\n  return [{\n    json: {\n      success: false,\n      error: 'Invalid or expired token',\n      statusCode: 401\n    }\n  }];\n}"
+      },
+      "id": "verify-token",
+      "name": "Verify JWT Token",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $node[\"Verify JWT Token\"].json[\"success\"] }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-token-valid",
+      "name": "Token Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO messages (id, sender_id, receiver_id, type, encrypted_payload, created_at, status) VALUES ($1, $2, $3, $4, $5, NOW(), 'sent') RETURNING *",
+        "additionalFields": {
+          "queryParameters": "={{ [require('uuid').v4(), $node[\"Verify JWT Token\"].json[\"userId\"], $node[\"Send Message Webhook\"].json[\"body\"][\"contactId\"], $node[\"Send Message Webhook\"].json[\"body\"][\"type\"], $node[\"Send Message Webhook\"].json[\"body\"][\"encryptedPayload\"]] }}"
+        }
+      },
+      "id": "insert-message",
+      "name": "Insert Message",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [900, 240],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-main",
+          "name": "PostgreSQL Main"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE messages SET status = 'delivered' WHERE receiver_id = $1 AND status = 'sent'",
+        "additionalFields": {
+          "queryParameters": "={{ [$node[\"Verify JWT Token\"].json[\"userId\"]] }}"
+        }
+      },
+      "id": "update-delivery",
+      "name": "Update Delivery Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1120, 240],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-main",
+          "name": "PostgreSQL Main"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const message = items[0].json;\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      id: message.id,\n      type: message.type,\n      timestamp: message.created_at,\n      senderId: message.sender_id,\n      receiverId: message.receiver_id,\n      status: message.status,\n      encryptedPayload: message.encrypted_payload\n    }\n  }\n}];"
+      },
+      "id": "format-response",
+      "name": "Format Message Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1340, 240]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $node[\"Format Message Response\"].json }}"
+      },
+      "id": "send-response",
+      "name": "Send Message Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 240]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Unauthorized\"\n}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "auth-error",
+      "name": "Auth Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 360]
+    }
+  ],
+  "connections": {
+    "Send Message Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify JWT Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify JWT Token": {
+      "main": [
+        [
+          {
+            "node": "Token Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token Valid?": {
+      "main": [
+        [
+          {
+            "node": "Insert Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Message": {
+      "main": [
+        [
+          {
+            "node": "Update Delivery Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Delivery Status": {
+      "main": [
+        [
+          {
+            "node": "Format Message Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Message Response": {
+      "main": [
+        [
+          {
+            "node": "Send Message Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {},
+  "versionId": "1"
+}
