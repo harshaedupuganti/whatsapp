@@ -1,16 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TopBar } from './components/TopBar';
 import { ChatList } from './components/ChatList';
 import { SearchView } from './components/SearchView';
 import { SettingsView } from './components/SettingsView';
 import { BottomNavigation } from './components/BottomNavigation';
 import { ProfileModal } from './components/ProfileModal';
-import { ChatView } from './components/chat/ChatView';
-import { ChatProvider, useChatContext } from './contexts/ChatContext';
+import { N8nChatView } from './components/chat/N8nChatView';
+import { AuthenticationView } from './components/AuthenticationView';
+import { N8nChatProvider, useN8nChatContext } from './contexts/N8nChatContext';
 import { SettingsProvider } from './contexts/SettingsContext';
+import { useN8nAuth } from './hooks/useN8nAuth';
 
 const AppContent: React.FC = () => {
-  const { state, setActiveTab, openChat, closeChat, navigateToChat } = useChatContext();
+  const { isAuthenticated, isLoading } = useN8nAuth();
+  const { state, setActiveTab, openChat, closeChat, navigateToChat } = useN8nChatContext();
   
   const [profileModal, setProfileModal] = useState({
     isOpen: false,
@@ -45,10 +48,28 @@ const AppContent: React.FC = () => {
     setProfileModal(prev => ({ ...prev, isFullScreen: !prev.isFullScreen }));
   };
 
+  // Show loading screen while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center max-w-md mx-auto">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading...</h2>
+          <p className="text-gray-600">Checking authentication status</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show authentication view if not authenticated
+  if (!isAuthenticated) {
+    return <AuthenticationView />;
+  }
+
   const renderContent = () => {
     if (state.showChat && state.currentChatId) {
       return (
-        <ChatView 
+        <N8nChatView 
           contactId={state.currentChatId} 
           onBack={closeChat}
           searchQuery={state.searchQuery}
@@ -111,9 +132,9 @@ const AppContent: React.FC = () => {
 function App() {
   return (
     <SettingsProvider>
-      <ChatProvider>
+      <N8nChatProvider>
         <AppContent />
-      </ChatProvider>
+      </N8nChatProvider>
     </SettingsProvider>
   );
 }

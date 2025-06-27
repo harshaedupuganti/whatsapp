@@ -151,6 +151,57 @@ class MessageService {
     }
   }
 
+  // New method for searching messages
+  public async searchMessages(query: string, contactId?: string): Promise<ApiResponse<Array<{
+    id: string;
+    content: string;
+    timestamp: string;
+    contactId: string;
+    contactName: string;
+  }>>> {
+    try {
+      const response = await apiClient.get('/webhook/messages/search', {
+        params: { 
+          q: query, 
+          contactId,
+          limit: 50 
+        }
+      });
+
+      if (response.success && response.data) {
+        // Decrypt search results
+        const decryptedResults = response.data.map((result: any) => ({
+          ...result,
+          content: this.decryptContent(result.encryptedPayload)
+        }));
+        
+        return {
+          success: true,
+          data: decryptedResults,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      return response;
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to search messages',
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  private decryptContent(encryptedPayload: string): string {
+    try {
+      const decrypted = encryptionService.decryptPayload(encryptedPayload);
+      return decrypted.content || '';
+    } catch (error) {
+      console.error('Failed to decrypt message content:', error);
+      return '[Encrypted Message]';
+    }
+  }
+
   private decryptMessageResponse(messageResponse: MessageResponse): MessageResponse {
     try {
       const decryptedPayload = encryptionService.decryptPayload(messageResponse.encryptedPayload);

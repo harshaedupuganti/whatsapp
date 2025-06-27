@@ -105,6 +105,50 @@ class ContactService {
     }
   }
 
+  // New method to search for users (not just contacts)
+  public async searchUsers(query: string): Promise<ApiResponse<Array<{
+    id: string;
+    displayName: string;
+    email: string;
+    profileImage: string;
+    isOnline: boolean;
+  }>>> {
+    try {
+      const response = await apiClient.get('/webhook/users/search', {
+        params: { q: query, limit: 20 }
+      });
+
+      return response;
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to search users',
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  // New method to add a contact
+  public async addContact(userId: string, customName?: string): Promise<ApiResponse<void>> {
+    try {
+      const response = await apiClient.post('/webhook/contacts/add', {
+        contactUserId: userId,
+        customName
+      });
+
+      // Invalidate cache to force refresh
+      this.contactCache.clear();
+      
+      return response;
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to add contact',
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
   public startAutoSync(intervalMs: number = 300000) { // 5 minutes default
     this.stopAutoSync();
     
@@ -136,7 +180,7 @@ class ContactService {
   private convertToContact(apiContact: any): Contact {
     return {
       id: apiContact.id,
-      name: apiContact.name,
+      name: apiContact.name || apiContact.displayName,
       profileImage: apiContact.profileImage,
       isOnline: apiContact.isOnline,
       lastSeen: apiContact.lastSeen ? new Date(apiContact.lastSeen) : undefined,

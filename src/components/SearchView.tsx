@@ -1,15 +1,35 @@
 import React, { useState, useMemo } from 'react';
-import { Search, User, MessageSquare, File, Link, Clock } from 'lucide-react';
-import { performSearch, rebuildSearchIndex, SearchResult } from '../utils/searchEngine';
-import { chatHasRealMessages } from '../utils/chatStorage';
+import { Search, User, MessageSquare, File, Link, Clock, Loader2 } from 'lucide-react';
+import { contactService } from '../services/n8n/contactService';
+import { messageService } from '../services/n8n/messageService';
+import { useN8nAuth } from '../hooks/useN8nAuth';
 
 interface SearchViewProps {
   onNavigateToChat?: (contactId: string, searchQuery: string, messageId: string) => void;
 }
 
+interface SearchResult {
+  id: string;
+  type: 'contacts' | 'messages' | 'files' | 'links';
+  title: string;
+  content: string;
+  timestamp: string;
+  contactName?: string;
+  contactId?: string;
+  messageId?: string;
+  profileImage?: string;
+  fileSize?: string;
+  fileType?: string;
+  url?: string;
+}
+
 export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
+  const { isAuthenticated } = useN8nAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'contacts' | 'messages' | 'files' | 'links'>('all');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const filters = [
     { id: 'all' as const, label: 'All', icon: Search },
@@ -19,24 +39,86 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
     { id: 'links' as const, label: 'Links', icon: Link },
   ];
 
-  // Rebuild search index when component mounts to ensure fresh data
+  const performSearch = async (query: string) => {
+    if (!query.trim() || !isAuthenticated) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    setError(null);
+
+    try {
+      const results: SearchResult[] = [];
+
+      // Search contacts
+      if (activeFilter === 'all' || activeFilter === 'contacts') {
+        const contactResponse = await contactService.searchContacts(query);
+        if (contactResponse.success && contactResponse.data) {
+          contactResponse.data.forEach(contact => {
+            results.push({
+              id: `contact-${contact.id}`,
+              type: 'contacts',
+              title: contact.name,
+              content: 'Contact',
+              timestamp: 'Contact',
+              profileImage: contact.profileImage,
+              contactId: contact.id,
+            });
+          });
+        }
+      }
+
+      // Search messages
+      if (activeFilter === 'all' || activeFilter === 'messages') {
+        const messageResponse = await messageService.searchMessages(query);
+        if (messageResponse.success && messageResponse.data) {
+          messageResponse.data.forEach(message => {
+            results.push({
+              id: `message-${message.id}`,
+              type: 'messages',
+              title: message.content.substring(0, 50) + (message.content.length > 50 ? '...' : ''),
+              content: message.content,
+              timestamp: new Date(message.timestamp).toLocaleString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+              }),
+              contactName: message.contactName,
+              contactId: message.contactId,
+              messageId: message.id,
+            });
+          });
+        }
+      }
+
+      // Search files and links would be implemented similarly
+      // For now, we'll focus on contacts and messages
+
+      setSearchResults(results);
+    } catch (err) {
+      setError('Search failed. Please try again.');
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Debounced search
   React.useEffect(() => {
-    rebuildSearchIndex();
-  }, []);
+    const timeoutId = setTimeout(() => {
+      performSearch(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, activeFilter]);
 
   const filteredResults = useMemo(() => {
-    // Allow search with just 1 character
-    if (!searchQuery.trim()) return [];
-
-    const allResults = performSearch(searchQuery);
-    
-    // Filter by active filter type
     if (activeFilter === 'all') {
-      return allResults;
+      return searchResults;
     }
-    
-    return allResults.filter(result => result.type === activeFilter);
-  }, [searchQuery, activeFilter]);
+    return searchResults.filter(result => result.type === activeFilter);
+  }, [searchResults, activeFilter]);
 
   const highlightText = (text: string, query: string) => {
     if (!query.trim()) return text;
@@ -69,14 +151,9 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
   };
 
   const handleResultClick = (result: SearchResult) => {
-    // Only navigate to chat for messages from active chats
     if (result.type === 'messages' && result.contactId && result.messageId && onNavigateToChat) {
-      if (chatHasRealMessages(result.contactId)) {
-        onNavigateToChat(result.contactId, searchQuery, result.messageId);
-      }
+      onNavigateToChat(result.contactId, searchQuery, result.messageId);
     }
-    // For other types, you could implement specific actions
-    // For now, we'll just handle message navigation
   };
 
   const getResultPreview = (result: SearchResult) => {
@@ -111,58 +188,32 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
             </p>
           </div>
         );
-      case 'files':
-        return (
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <p className="font-medium text-gray-900 text-sm">
-                {result.contactName}
-              </p>
-              <span className="text-xs text-gray-500">{result.timestamp}</span>
-            </div>
-            <div className="flex items-center">
-              <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-2">
-                <File size={16} className="text-blue-600" />
-              </div>
-              <div>
-                <p className="text-gray-700 font-medium">
-                  {highlightText(result.title, searchQuery)}
-                </p>
-                <p className="text-xs text-gray-500">
-                  {result.fileType} • {result.fileSize}
-                </p>
-              </div>
-            </div>
-          </div>
-        );
-      case 'links':
-        return (
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <p className="font-medium text-gray-900 text-sm">
-                {result.contactName}
-              </p>
-              <span className="text-xs text-gray-500">{result.timestamp}</span>
-            </div>
-            <div className="flex items-center">
-              <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-2">
-                <Link size={16} className="text-purple-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-gray-700 font-medium">
-                  {highlightText(result.title, searchQuery)}
-                </p>
-                <p className="text-sm text-gray-500 truncate">
-                  {result.content}
-                </p>
-              </div>
-            </div>
-          </div>
-        );
       default:
-        return null;
+        return (
+          <div>
+            <p className="font-medium text-gray-900">
+              {highlightText(result.title, searchQuery)}
+            </p>
+            <p className="text-sm text-gray-500">{result.content}</p>
+          </div>
+        );
     }
   };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex-1 bg-white flex items-center justify-center">
+        <div className="text-center">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            Authentication Required
+          </h3>
+          <p className="text-gray-500">
+            Please log in to search your chats and contacts.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 bg-white flex flex-col">
@@ -172,11 +223,14 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
           <input
             type="text"
-            placeholder="Search chats, contacts, messages, files..."
+            placeholder="Search chats, contacts, messages..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
           />
+          {isSearching && (
+            <Loader2 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 animate-spin" size={20} />
+          )}
         </div>
       </div>
 
@@ -202,6 +256,12 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
+        {error && (
+          <div className="p-4 bg-red-50 border-b border-red-100">
+            <p className="text-red-700 text-sm">{error}</p>
+          </div>
+        )}
+
         {!searchQuery.trim() ? (
           <div className="flex flex-col items-center justify-center py-16 px-6">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
@@ -217,7 +277,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
               Start typing to search...
             </p>
           </div>
-        ) : filteredResults.length === 0 ? (
+        ) : filteredResults.length === 0 && !isSearching ? (
           <div className="flex flex-col items-center justify-center py-16 px-6">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
               <Search className="text-gray-400" size={32} />
@@ -238,7 +298,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToChat }) => {
               <div
                 key={result.id}
                 className={`p-4 transition-colors ${
-                  result.type === 'messages' && result.contactId && chatHasRealMessages(result.contactId)
+                  result.type === 'messages' && result.contactId
                     ? 'hover:bg-gray-50 cursor-pointer'
                     : result.type !== 'messages'
                     ? 'hover:bg-gray-50 cursor-pointer'

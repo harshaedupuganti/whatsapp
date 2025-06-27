@@ -1,0 +1,393 @@
+{
+  "name": "Quiddity Chat - Contacts",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "contacts/sync",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-sync",
+      "name": "Sync Contacts Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "contacts-sync"
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "contacts/search",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-search",
+      "name": "Search Contacts Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "webhookId": "contacts-search"
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "users/search",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-search-users",
+      "name": "Search Users Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 700],
+      "webhookId": "users-search"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "contacts/add",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-add-contact",
+      "name": "Add Contact Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 900],
+      "webhookId": "contacts-add"
+    },
+    {
+      "parameters": {
+        "functionCode": "const jwt = require('jsonwebtoken');\n\nconst authHeader = $node[\"Sync Contacts Webhook\"].json[\"headers\"][\"authorization\"];\nif (!authHeader || !authHeader.startsWith('Bearer ')) {\n  return [{\n    json: {\n      success: false,\n      error: 'No authorization token provided',\n      statusCode: 401\n    }\n  }];\n}\n\nconst token = authHeader.substring(7);\n\ntry {\n  const decoded = jwt.verify(token, process.env.JWT_SECRET);\n  return [{\n    json: {\n      success: true,\n      userId: decoded.userId,\n      email: decoded.email\n    }\n  }];\n} catch (error) {\n  return [{\n    json: {\n      success: false,\n      error: 'Invalid or expired token',\n      statusCode: 401\n    }\n  }];\n}"
+      },
+      "id": "verify-token-sync",
+      "name": "Verify JWT Token (Sync)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const jwt = require('jsonwebtoken');\n\nconst authHeader = $node[\"Search Users Webhook\"].json[\"headers\"][\"authorization\"];\nif (!authHeader || !authHeader.startsWith('Bearer ')) {\n  return [{\n    json: {\n      success: false,\n      error: 'No authorization token provided',\n      statusCode: 401\n    }\n  }];\n}\n\nconst token = authHeader.substring(7);\n\ntry {\n  const decoded = jwt.verify(token, process.env.JWT_SECRET);\n  return [{\n    json: {\n      success: true,\n      userId: decoded.userId,\n      email: decoded.email\n    }\n  }];\n} catch (error) {\n  return [{\n    json: {\n      success: false,\n      error: 'Invalid or expired token',\n      statusCode: 401\n    }\n  }];\n}"
+      },
+      "id": "verify-token-search-users",
+      "name": "Verify JWT Token (Search Users)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 700]
+    },
+    {
+      "parameters": {
+        "functionCode": "const jwt = require('jsonwebtoken');\n\nconst authHeader = $node[\"Add Contact Webhook\"].json[\"headers\"][\"authorization\"];\nif (!authHeader || !authHeader.startsWith('Bearer ')) {\n  return [{\n    json: {\n      success: false,\n      error: 'No authorization token provided',\n      statusCode: 401\n    }\n  }];\n}\n\nconst token = authHeader.substring(7);\n\ntry {\n  const decoded = jwt.verify(token, process.env.JWT_SECRET);\n  return [{\n    json: {\n      success: true,\n      userId: decoded.userId,\n      email: decoded.email\n    }\n  }];\n} catch (error) {\n  return [{\n    json: {\n      success: false,\n      error: 'Invalid or expired token',\n      statusCode: 401\n    }\n  }];\n}"
+      },
+      "id": "verify-token-add",
+      "name": "Verify JWT Token (Add)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 900]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT u.id, u.display_name as name, u.profile_image, u.is_online, u.last_seen FROM contacts c JOIN users u ON c.contact_user_id = u.id WHERE c.user_id = $1 AND c.is_active = true AND u.is_active = true ORDER BY u.display_name",
+        "additionalFields": {
+          "queryParameters": "={{ [$node[\"Verify JWT Token (Sync)\"].json[\"userId\"]] }}"
+        }
+      },
+      "id": "get-contacts",
+      "name": "Get User Contacts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-main",
+          "name": "PostgreSQL Main"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT u.id, u.display_name, u.email, u.profile_image, u.is_online FROM users u WHERE (u.email ILIKE '%' || $2 || '%' OR u.display_name ILIKE '%' || $2 || '%') AND u.id != $1 AND u.is_active = true AND u.id NOT IN (SELECT contact_user_id FROM contacts WHERE user_id = $1) LIMIT 20",
+        "additionalFields": {
+          "queryParameters": "={{ [$node[\"Verify JWT Token (Search Users)\"].json[\"userId\"], $node[\"Search Users Webhook\"].json[\"query\"][\"q\"]] }}"
+        }
+      },
+      "id": "search-users",
+      "name": "Search Available Users",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [680, 700],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-main",
+          "name": "PostgreSQL Main"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO contacts (user_id, contact_user_id, contact_name, created_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (user_id, contact_user_id) DO UPDATE SET contact_name = $3, updated_at = NOW()",
+        "additionalFields": {
+          "queryParameters": "={{ [$node[\"Verify JWT Token (Add)\"].json[\"userId\"], $node[\"Add Contact Webhook\"].json[\"body\"][\"contactUserId\"], $node[\"Add Contact Webhook\"].json[\"body\"][\"customName\"]] }}"
+        }
+      },
+      "id": "add-contact",
+      "name": "Add Contact to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [680, 900],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-main",
+          "name": "PostgreSQL Main"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const contacts = items.map(item => ({\n  id: item.json.id,\n  name: item.json.name,\n  profileImage: item.json.profile_image,\n  isOnline: item.json.is_online,\n  lastSeen: item.json.last_seen\n}));\n\nreturn [{\n  json: {\n    success: true,\n    data: {\n      contacts: contacts\n    }\n  }\n}];"
+      },
+      "id": "format-contacts-response",
+      "name": "Format Contacts Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const users = items.map(item => ({\n  id: item.json.id,\n  displayName: item.json.display_name,\n  email: item.json.email,\n  profileImage: item.json.profile_image,\n  isOnline: item.json.is_online\n}));\n\nreturn [{\n  json: {\n    success: true,\n    data: users\n  }\n}];"
+      },
+      "id": "format-users-response",
+      "name": "Format Users Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 700]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $node[\"Format Contacts Response\"].json }}"
+      },
+      "id": "contacts-response",
+      "name": "Contacts Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $node[\"Format Users Response\"].json }}"
+      },
+      "id": "users-response",
+      "name": "Users Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 700]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": true,\n  \"message\": \"Contact added successfully\"\n}"
+      },
+      "id": "add-contact-response",
+      "name": "Add Contact Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 900]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Unauthorized\"\n}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "auth-error-sync",
+      "name": "Auth Error Response (Sync)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Unauthorized\"\n}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "auth-error-users",
+      "name": "Auth Error Response (Users)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 800]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Unauthorized\"\n}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "auth-error-add",
+      "name": "Auth Error Response (Add)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 1000]
+    }
+  ],
+  "connections": {
+    "Sync Contacts Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify JWT Token (Sync)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Users Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify JWT Token (Search Users)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Contact Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify JWT Token (Add)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify JWT Token (Sync)": {
+      "main": [
+        [
+          {
+            "node": "Get User Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Error Response (Sync)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify JWT Token (Search Users)": {
+      "main": [
+        [
+          {
+            "node": "Search Available Users",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Error Response (Users)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify JWT Token (Add)": {
+      "main": [
+        [
+          {
+            "node": "Add Contact to Database",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auth Error Response (Add)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get User Contacts": {
+      "main": [
+        [
+          {
+            "node": "Format Contacts Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Available Users": {
+      "main": [
+        [
+          {
+            "node": "Format Users Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Contact to Database": {
+      "main": [
+        [
+          {
+            "node": "Add Contact Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Contacts Response": {
+      "main": [
+        [
+          {
+            "node": "Contacts Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Users Response": {
+      "main": [
+        [
+          {
+            "node": "Users Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {},
+  "versionId": "1"
+}
